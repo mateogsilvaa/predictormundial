@@ -98,6 +98,79 @@ namespace Oloraculo.Web.Services
             return new FootballDataIngestReport(true, dueFixtures.Count, ingested, evaluation.Evaluated, notes, errors);
         }
 
+        /// <summary>
+        /// Syncs the whole competition: pulls every match (scheduled and finished), updates each
+        /// local fixture's kickoff time, status and — when finished — the real score, then evaluates
+        /// the newly played fixtures. This is what gives the page chronological dates and live updates.
+        /// </summary>
+        public async Task<FootballDataIngestReport> SyncFixturesAsync(CancellationToken ct = default)
+        {
+            if (!IsConfigured)
+                return FootballDataIngestReport.NotConfigured();
+
+            var notes = new List<string>();
+            var errors = new List<string>();
+
+            FootballDataMatchesResponse? response;
+            try
+            {
+                response = await _http.GetFromJsonAsync<FootballDataMatchesResponse>(
+                    $"competitions/{_config.FootballDataCompetition}/matches", ct);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"No se pudieron leer partidos de football-data.org: {ex.Message}");
+                return new FootballDataIngestReport(true, 0, 0, 0, notes, errors);
+            }
+
+            var matches = response?.Matches ?? [];
+            var fixtures = await _db.Fixtures.ToListAsync(ct);
+            var byPair = new Dictionary<string, Fixture>(StringComparer.Ordinal);
+            foreach (var fixture in fixtures)
+                byPair[PairKey(fixture.HomeTeamId, fixture.AwayTeamId)] = fixture;
+
+            var synced = 0;
+            var ingested = 0;
+            foreach (var match in matches)
+            {
+                var homeId = TeamNameNormalizer.ToId(match.HomeTeam.Name ?? "");
+                var awayId = TeamNameNormalizer.ToId(match.AwayTeam.Name ?? "");
+                if (!byPair.TryGetValue(PairKey(homeId, awayId), out var fixture))
+                    continue;
+
+                if (match.UtcDate != default)
+                    fixture.KickoffUtc = match.UtcDate;
+                fixture.Status = match.Status;
+                synced++;
+
+                if (IsFinishedStatus(match.Status) &&
+                    match.Score.FullTime.Home is { } scoreHome &&
+                    match.Score.FullTime.Away is { } scoreAway)
+                {
+                    var (homeGoals, awayGoals) = homeId == fixture.HomeTeamId
+                        ? (scoreHome, scoreAway)
+                        : (scoreAway, scoreHome);
+                    if (!fixture.IsPlayed)
+                        ingested++;
+                    fixture.IsPlayed = true;
+                    fixture.HomeGoals = homeGoals;
+                    fixture.AwayGoals = awayGoals;
+                    fixture.Source = "football-data.org";
+                }
+            }
+
+            await _db.SaveChangesAsync(ct);
+            var evaluation = await _evaluation.EvaluateUnevaluatedPlayedFixturesAsync(ct);
+            notes.Add($"Partidos sincronizados: {synced}. Resultados nuevos: {ingested}. Evaluados: {evaluation.Evaluated}.");
+            return new FootballDataIngestReport(true, synced, ingested, evaluation.Evaluated, notes, errors);
+        }
+
+        private static bool IsFinishedStatus(string? status) =>
+            string.Equals(status, "FINISHED", StringComparison.OrdinalIgnoreCase);
+
+        private static string PairKey(string a, string b) =>
+            string.CompareOrdinal(a, b) <= 0 ? $"{a}|{b}" : $"{b}|{a}";
+
         /// <summary>True once <paramref name="now"/> is past kickoff plus the assumed match duration.</summary>
         public static bool ShouldHaveFinished(DateTimeOffset kickoff, DateTimeOffset now, TimeSpan assumedDuration) =>
             now >= kickoff + assumedDuration;

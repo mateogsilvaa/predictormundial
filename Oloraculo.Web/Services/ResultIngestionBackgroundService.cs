@@ -58,7 +58,7 @@ namespace Oloraculo.Web.Services
             {
                 using var scope = _services.CreateScope();
                 var ingestor = scope.ServiceProvider.GetRequiredService<FootballDataService>();
-                var report = await ingestor.IngestDueResultsAsync(ct);
+                var report = await ingestor.SyncFixturesAsync(ct);
 
                 foreach (var note in report.Notes)
                     _logger.LogInformation("Ingesta resultados: {Note}", note);
