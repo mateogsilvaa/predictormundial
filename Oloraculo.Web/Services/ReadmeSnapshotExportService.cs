@@ -80,6 +80,23 @@ namespace Oloraculo.Web.Services
             var fixtures = await _db.Fixtures.AsNoTracking().ToListAsync(ct);
             var orderedFixtures = OrderedFixtures(fixtures).ToList();
             var predictions = await _prediction.PredictFixturesAsync(orderedFixtures, ct);
+
+            // Persist each component model's pre-game prediction so that, once these fixtures are
+            // played, every model gets graded individually and the ensemble can learn which ones to
+            // trust. Saved before the final batch so the "Oráculo final" snapshot stays the latest
+            // one for any given fixture (README rendering loads the most recent snapshot).
+            var unplayedFixtureIds = orderedFixtures
+                .Where(fixture => !fixture.IsPlayed)
+                .Select(fixture => fixture.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            var componentPredictions = predictions
+                .Where(result => unplayedFixtureIds.Contains(result.Fixture.Id))
+                .SelectMany(result => result.Predictions)
+                .Where(prediction => prediction.PredictorPriority > 0)
+                .ToList();
+            if (componentPredictions.Count > 0)
+                await _snapshots.SaveMatchesAsync(componentPredictions, ct);
+
             await _snapshots.SaveFullFixtureAsync(predictions.Select(result => result.BestPrediction), ct);
 
             var projection = await _simulation.RunAsync(saveSnapshot: true, ct: ct);

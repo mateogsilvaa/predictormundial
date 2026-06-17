@@ -128,6 +128,48 @@ public class EvaluationServiceTests : TestFixtures
         Assert.Equal(1, await db.Evaluations.CountAsync(e => e.FixtureId == "f1"));
     }
 
+    [Fact]
+    public void ReliabilityWeights_RewardAccurateModelsAndPenaliseInaccurateOnes()
+    {
+        var evaluations = new List<PredictionEvaluation>();
+        for (var i = 0; i < 10; i++)
+        {
+            evaluations.Add(EvaluationWithRps("Modelo preciso", 0.05));
+            evaluations.Add(EvaluationWithRps("Modelo flojo", 0.40));
+        }
+
+        var weights = EvaluationService.ComputeReliabilityWeights(evaluations);
+
+        Assert.True(weights["Modelo preciso"] > 1.0);
+        Assert.True(weights["Modelo flojo"] < 1.0);
+        Assert.True(weights["Modelo preciso"] > weights["Modelo flojo"]);
+    }
+
+    [Fact]
+    public void ReliabilityWeights_AreEmptyWithoutHistory()
+    {
+        Assert.Empty(EvaluationService.ComputeReliabilityWeights([]));
+    }
+
+    private static PredictionEvaluation EvaluationWithRps(string modelName, double rps) => new()
+    {
+        ModelName = modelName,
+        FixtureId = Guid.NewGuid().ToString("N"),
+        HomeTeamId = "a",
+        AwayTeamId = "b",
+        HomeGoals = 1,
+        AwayGoals = 0,
+        HomeWin = .5,
+        Draw = .25,
+        AwayWin = .25,
+        Actual = "Home",
+        BrierScore = rps,
+        RankedProbabilityScore = rps,
+        LogLoss = rps,
+        TopPickCorrect = true,
+        PredictedAt = DateTimeOffset.UtcNow
+    };
+
     private static Fixture PlayedFixture(string id, int homeGoals, int awayGoals) => new()
     {
         Id = id,

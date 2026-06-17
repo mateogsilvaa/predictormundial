@@ -98,7 +98,12 @@ namespace Oloraculo.Web.Probability
             return -Math.Log(Math.Clamp(probability, 0.001, 0.999));
         }
 
-        private static double DixonColesTau(int homeGoals, int awayGoals, double lambdaHome, double lambdaAway, double lowScoreRho)
+        /// <summary>
+        /// Dixon-Coles low-score correction factor (tau). Adjusts the independent-Poisson
+        /// probabilities for the 0-0, 0-1, 1-0 and 1-1 scorelines, where real football
+        /// results deviate most from the independence assumption.
+        /// </summary>
+        public static double DixonColesTau(int homeGoals, int awayGoals, double lambdaHome, double lambdaAway, double lowScoreRho)
         {
             return (homeGoals, awayGoals) switch
             {
@@ -109,6 +114,16 @@ namespace Oloraculo.Web.Probability
                 _ => 1.0
             };
         }
+
+        /// <summary>
+        /// Joint probability of an exact scoreline under the Dixon-Coles model:
+        /// independent Poisson marginals multiplied by the low-score tau correction.
+        /// Used both for the scoreline grid and for data-driven rho calibration.
+        /// </summary>
+        public static double DixonColesScoreProbability(int homeGoals, int awayGoals, double lambdaHome, double lambdaAway, double lowScoreRho) =>
+            Math.Max(0, Poisson(lambdaHome, homeGoals)
+                * Poisson(lambdaAway, awayGoals)
+                * DixonColesTau(homeGoals, awayGoals, lambdaHome, lambdaAway, lowScoreRho));
 
         private static double Poisson(double lambda, int k)
         {

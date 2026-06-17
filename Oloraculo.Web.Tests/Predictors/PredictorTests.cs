@@ -117,70 +117,75 @@ public class PredictorTests : TestFixtures
     }
 
     [Fact]
-    public void FinalSelector_ChoosesHighestUsableRungWithoutAveraging()
+    public void FinalSelector_BlendsUsableModelsWeightedByPriorPriority()
     {
+        // form (priority 3) and goal (priority 4) are blended with prior weights 3 and 4.
         var form = Prediction(3, "Forma reciente", .05, .05, .90);
         var goal = Prediction(4, "Goal", .90, .05, .05, scoreline: ProbabilityHelper.PoissonScoreline(3.0, .4));
-        var context = Prediction(5, "Context", .10, .80, .10, degraded: true, missing: ["availability"]);
 
-        var final = FinalPredictionSelector.Select([form, goal, context]);
-
-        Assert.Equal("Oráculo final", final.PredictorName);
-        Assert.Equal(4, final.PredictorPriority);
-        Assert.Equal(goal.Outcome, final.Outcome);
-        Assert.NotEqual(.475, final.Outcome.HomeWin, 3);
-    }
-
-    [Fact]
-    public void FinalSelector_AppliesLightRankingBiasWhenEloAndFifaAgreeAgainstSelected()
-    {
-        var fifa = Prediction(1, "Ranking FIFA", .15, .20, .65, sources: [SourceMetadata.FifaRankings]);
-        var elo = Prediction(2, "Elo", .10, .20, .70, sources: [SourceMetadata.EloRatings]);
-        var goalScoreline = ProbabilityHelper.PoissonScoreline(1.4, 1.1);
-        var goal = Prediction(4, "Goal", .45, .35, .20, scoreline: goalScoreline);
-
-        var final = FinalPredictionSelector.Select([fifa, elo, goal]);
+        var final = FinalPredictionSelector.Select([form, goal]);
 
         Assert.Equal("Oráculo final", final.PredictorName);
         Assert.Equal(4, final.PredictorPriority);
-        Assert.Equal(.40125, final.Outcome.HomeWin, 5);
-        Assert.Equal(.3275, final.Outcome.Draw, 5);
-        Assert.Equal(.27125, final.Outcome.AwayWin, 5);
-        Assert.Same(goalScoreline, final.Scoreline);
-        Assert.Contains(final.Drivers, d => d.Contains("calibración Elo/FIFA"));
-        Assert.Contains("calibración Elo/FIFA", final.Explanation);
-        Assert.Contains(SourceMetadata.FifaRankings, final.Sources);
-        Assert.Contains(SourceMetadata.EloRatings, final.Sources);
+        // home = (3*.05 + 4*.90)/7 = 3.75/7; draw = .35/7; away = 2.90/7.
+        Assert.Equal(0.5357, final.Outcome.HomeWin, 4);
+        Assert.Equal(0.0500, final.Outcome.Draw, 4);
+        Assert.Equal(0.4143, final.Outcome.AwayWin, 4);
+        Assert.True(final.Outcome.IsValid);
     }
 
     [Fact]
-    public void FinalSelector_DoesNotApplyRankingBiasWhenRankingModelsDisagree()
+    public void FinalSelector_ExcludesBaseAndDegradedModelsFromTheBlend()
     {
-        var fifa = Prediction(1, "Ranking FIFA", .65, .20, .15, sources: [SourceMetadata.FifaRankings]);
-        var elo = Prediction(2, "Elo", .10, .20, .70, sources: [SourceMetadata.EloRatings]);
-        var goal = Prediction(4, "Goal", .45, .35, .20);
+        var baseModel = Prediction(0, "Modelo base", 1.0 / 3, 1.0 / 3, 1.0 / 3);
+        var form = Prediction(3, "Forma reciente", .05, .05, .90);
+        var goal = Prediction(4, "Goal", .90, .05, .05);
+        var degradedContext = Prediction(5, "Context", .10, .80, .10, degraded: true, missing: ["availability"]);
 
-        var final = FinalPredictionSelector.Select([fifa, elo, goal]);
+        var final = FinalPredictionSelector.Select([baseModel, form, goal, degradedContext]);
 
-        Assert.Equal(goal.Outcome, final.Outcome);
-        Assert.DoesNotContain(final.Drivers, d => d.Contains("calibración Elo/FIFA"));
-        Assert.DoesNotContain(SourceMetadata.FifaRankings, final.Sources);
-        Assert.DoesNotContain(SourceMetadata.EloRatings, final.Sources);
+        // Identical to blending only form + goal: the base and degraded models do not move it.
+        Assert.Equal(0.5357, final.Outcome.HomeWin, 4);
+        Assert.Equal(0.0500, final.Outcome.Draw, 4);
+        Assert.Equal(0.4143, final.Outcome.AwayWin, 4);
+        Assert.Equal(4, final.PredictorPriority);
     }
 
     [Fact]
-    public void FinalSelector_DoesNotApplyRankingBiasWhenRankingModelIsDegraded()
+    public void FinalSelector_ReliabilityWeightsReweightTheBlend_TheLearningLoop()
     {
-        var fifa = Prediction(1, "Ranking FIFA", .15, .20, .65, degraded: true, sources: [SourceMetadata.FifaRankings]);
-        var elo = Prediction(2, "Elo", .10, .20, .70, sources: [SourceMetadata.EloRatings]);
-        var goal = Prediction(4, "Goal", .45, .35, .20);
+        var form = Prediction(3, "Forma reciente", .05, .05, .90);
+        var goal = Prediction(4, "Goal", .90, .05, .05);
 
-        var final = FinalPredictionSelector.Select([fifa, elo, goal]);
+        // Without learning, the goal model dominates (home pick). Once the recent-form model is
+        // shown to be far more accurate, the ensemble must shift toward its away pick.
+        var withoutLearning = FinalPredictionSelector.Select([form, goal]);
+        var withLearning = FinalPredictionSelector.Select(
+            [form, goal],
+            new Dictionary<string, double> { ["Forma reciente"] = 3.0, ["Goal"] = 0.5 });
 
-        Assert.Equal(goal.Outcome, final.Outcome);
-        Assert.DoesNotContain(final.Drivers, d => d.Contains("calibración Elo/FIFA"));
-        Assert.DoesNotContain(SourceMetadata.FifaRankings, final.Sources);
-        Assert.DoesNotContain(SourceMetadata.EloRatings, final.Sources);
+        Assert.Equal("Home", withoutLearning.Outcome.TopPick);
+        Assert.Equal("Away", withLearning.Outcome.TopPick);
+        Assert.True(withLearning.Outcome.AwayWin > withoutLearning.Outcome.AwayWin);
+    }
+
+    [Fact]
+    public void FinalSelector_ScorelineStaysConsistentWithBlendedTopPick()
+    {
+        // The goal model's own grid is strongly home-leaning, but the ensemble (driven by a very
+        // reliable away-leaning form model) picks away. The displayed scoreline must follow the
+        // blended outcome, not the anchor's raw most-likely score. This is the regression test for
+        // the old bug where the headline probabilities and the shown scoreline could contradict.
+        var form = Prediction(3, "Forma reciente", .02, .03, .95);
+        var goal = Prediction(4, "Goal", .85, .10, .05, scoreline: ProbabilityHelper.PoissonScoreline(2.8, 0.4));
+
+        var final = FinalPredictionSelector.Select(
+            [form, goal],
+            new Dictionary<string, double> { ["Forma reciente"] = 5.0 });
+
+        Assert.Equal("Away", final.Outcome.TopPick);
+        Assert.NotNull(final.MostLikelyScore);
+        Assert.True(final.MostLikelyScore!.Value.Away > final.MostLikelyScore.Value.Home);
     }
 
 }

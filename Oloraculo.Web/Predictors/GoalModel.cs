@@ -8,7 +8,13 @@ namespace Oloraculo.Web.Predictors
         private const double DefaultAverageGoals = 1.25;
         private const double PriorMatches = 2.0;
         private const double GoalScale = 1.10;
-        private const double LowScoreRho = 0.00;
+        // Dixon-Coles low-score correction. Previously hardcoded to 0.00, which silently
+        // disabled the correction (tau == 1 for every scoreline) and made the model
+        // systematically under-predict draws and low-scoring games. We now estimate rho
+        // from the historical window and only fall back to this prior when data is thin.
+        private const double DefaultLowScoreRho = -0.05;
+        private const double LowScoreRhoMin = -0.20;
+        private const double LowScoreRhoMax = 0.10;
         private const double HomeAdvantageMultiplier = 1.08;
         // Sanity-checked against bundled historical results; rerun tooling/goal_strength_calibration.py when revisiting.
         private const double GoalStrengthMinMultiplier = 0.25;
@@ -18,13 +24,14 @@ namespace Oloraculo.Web.Predictors
 
         private readonly IReadOnlyDictionary<string, GoalStrength> _strengths;
         private readonly double _avgGoals;
+        private readonly double _rho;
         protected readonly int _matchesUsed;
         protected readonly int _yearsWindow;
 
         public GoalModel(IReadOnlyList<MatchResult> results, int yearsWindow = 8)
         {
             _yearsWindow = yearsWindow;
-            (_strengths, _avgGoals, _matchesUsed) = Fit(results, yearsWindow);
+            (_strengths, _avgGoals, _matchesUsed, _rho) = Fit(results, yearsWindow);
         }
 
         public virtual string Name => "Modelo de goles (Poisson)";
@@ -82,12 +89,12 @@ namespace Oloraculo.Web.Predictors
         }
 
         public ScorelineDistribution BuildScoreline(double homeGoals, double awayGoals) =>
-            ProbabilityHelper.PoissonScoreline(homeGoals, awayGoals, lowScoreRho: LowScoreRho);
+            ProbabilityHelper.PoissonScoreline(homeGoals, awayGoals, lowScoreRho: _rho);
 
-        private static (IReadOnlyDictionary<string, GoalStrength> Strengths, double AvgGoals, int MatchesUsed) Fit(IReadOnlyList<MatchResult> results, int yearsWindow)
+        private static (IReadOnlyDictionary<string, GoalStrength> Strengths, double AvgGoals, int MatchesUsed, double Rho) Fit(IReadOnlyList<MatchResult> results, int yearsWindow)
         {
             if (results.Count == 0)
-                return (new Dictionary<string, GoalStrength>(), DefaultAverageGoals, 0);
+                return (new Dictionary<string, GoalStrength>(), DefaultAverageGoals, 0, DefaultLowScoreRho);
 
             var latest = results.Max(r => r.Date);
             var cutoff = yearsWindow > 0 ? latest.AddYears(-yearsWindow) : DateTimeOffset.MinValue;
@@ -170,7 +177,9 @@ namespace Oloraculo.Web.Predictors
                 Matches = matches[team]
             });
 
-            return (map, avg, window.Count);
+            var rho = FitRho(weighted, map, avg);
+
+            return (map, avg, window.Count, rho);
 
             static double ShrinkToNeutral(double value, double weight) =>
                 Math.Clamp(((value * weight) + PriorMatches) / (weight + PriorMatches), GoalStrengthMinMultiplier, GoalStrengthMaxMultiplier);
@@ -184,6 +193,54 @@ namespace Oloraculo.Web.Predictors
                 foreach (var key in values.Keys.ToList())
                     values[key] /= mean;
             }
+        }
+
+        /// <summary>
+        /// Estimates the Dixon-Coles rho by maximum (recency-weighted) likelihood over the
+        /// fitted window. Falls back to the prior when there are too few low-scoring games
+        /// to estimate it reliably.
+        /// </summary>
+        private static double FitRho(
+            IReadOnlyList<(MatchResult Result, double Weight)> weighted,
+            IReadOnlyDictionary<string, GoalStrength> strengths,
+            double avg)
+        {
+            var lowScoreMatches = weighted.Count(w => w.Result.HomeGoals <= 1 && w.Result.AwayGoals <= 1);
+            if (lowScoreMatches < 30)
+                return DefaultLowScoreRho;
+
+            var bestRho = DefaultLowScoreRho;
+            var bestLogLikelihood = double.NegativeInfinity;
+
+            for (var rho = LowScoreRhoMin; rho <= LowScoreRhoMax + 1e-9; rho += 0.005)
+            {
+                var logLikelihood = 0.0;
+                foreach (var (result, weight) in weighted)
+                {
+                    if (!strengths.TryGetValue(result.HomeTeamId, out var home) ||
+                        !strengths.TryGetValue(result.AwayTeamId, out var away))
+                        continue;
+
+                    var lambdaHome = avg * home.Attack * away.DefenseVulnerability * GoalScale;
+                    var lambdaAway = avg * away.Attack * home.DefenseVulnerability * GoalScale;
+                    if (!result.Neutral)
+                        lambdaHome *= HomeAdvantageMultiplier;
+                    lambdaHome = Math.Clamp(lambdaHome, 0.05, 6.0);
+                    lambdaAway = Math.Clamp(lambdaAway, 0.05, 6.0);
+
+                    var probability = ProbabilityHelper.DixonColesScoreProbability(
+                        result.HomeGoals, result.AwayGoals, lambdaHome, lambdaAway, rho);
+                    logLikelihood += weight * Math.Log(Math.Max(probability, 1e-12));
+                }
+
+                if (logLikelihood > bestLogLikelihood)
+                {
+                    bestLogLikelihood = logLikelihood;
+                    bestRho = rho;
+                }
+            }
+
+            return Math.Clamp(bestRho, LowScoreRhoMin, LowScoreRhoMax);
         }
     }
 

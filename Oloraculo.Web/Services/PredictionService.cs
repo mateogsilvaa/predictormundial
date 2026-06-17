@@ -33,10 +33,11 @@ namespace Oloraculo.Web.Services
         {
             var fixtureList = fixtures.ToList();
             var predictors = await BuildPredictorsAsync(ct);
+            var reliability = await ReliabilityWeightsAsync(ct);
             var results = new List<MatchPredictionResult>(fixtureList.Count);
 
             foreach (var fixture in fixtureList)
-                results.Add(await PredictAsync(fixture, predictors, ct));
+                results.Add(await PredictAsync(fixture, predictors, reliability, ct));
 
             return results;
         }
@@ -44,10 +45,15 @@ namespace Oloraculo.Web.Services
         public async Task<MatchPredictionResult> PredictAsync(Fixture fixture, CancellationToken ct = default)
         {
             var predictors = await BuildPredictorsAsync(ct);
-            return await PredictAsync(fixture, predictors, ct);
+            var reliability = await ReliabilityWeightsAsync(ct);
+            return await PredictAsync(fixture, predictors, reliability, ct);
         }
 
-        private async Task<MatchPredictionResult> PredictAsync(Fixture fixture, IReadOnlyList<IPredictor> predictors, CancellationToken ct)
+        private async Task<MatchPredictionResult> PredictAsync(
+            Fixture fixture,
+            IReadOnlyList<IPredictor> predictors,
+            IReadOnlyDictionary<string, double> reliability,
+            CancellationToken ct)
         {
             var context = await BuildContextAsync(fixture, ct);
             var ladder = predictors.Select(p => p.Predict(context)).ToList();
@@ -58,9 +64,14 @@ namespace Oloraculo.Web.Services
                 HomeTeamName = context.HomeTeam.Name,
                 AwayTeamName = context.AwayTeam.Name,
                 Predictions = ladder,
-                BestPrediction = FinalPredictionSelector.Select(ladder)
+                BestPrediction = FinalPredictionSelector.Select(ladder, reliability)
             };
         }
+
+        // Loads the per-model accuracy weights so the ensemble can lean on whichever models have
+        // actually been getting matches right. Empty until the first results are evaluated.
+        private async Task<IReadOnlyDictionary<string, double>> ReliabilityWeightsAsync(CancellationToken ct) =>
+            EvaluationService.ComputeReliabilityWeights(await _db.Evaluations.AsNoTracking().ToListAsync(ct));
 
         public async Task<MatchContext> BuildContextAsync(Fixture fixture, CancellationToken ct = default)
         {
