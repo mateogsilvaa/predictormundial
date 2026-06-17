@@ -29,6 +29,11 @@ bld/
 ## Codex
 /.codex-tmp/
 
+## Generated static site / CI state
+/dist/
+/Oloraculo.Web/dist/
+/state/
+
 ## Local automation
 /publish-readme-snapshot.bat
 

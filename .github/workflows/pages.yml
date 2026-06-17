@@ -49,7 +49,9 @@ jobs:
           Oloraculo__FootballDataApiKey: ${{ secrets.FOOTBALL_DATA_API_KEY }}
           Oloraculo__ApiFootballApiKey: ${{ secrets.API_FOOTBALL_API_KEY }}
           Oloraculo__OpenRouterApiKey: ${{ secrets.OPENROUTER_API_KEY }}
-        run: dotnet run --project Oloraculo.Web -c Release -- --export-site --output dist
+        # Absolute output path: `dotnet run --project` sets the app's working directory to the
+        # project folder, so a relative path would land in Oloraculo.Web/dist, not the repo root.
+        run: dotnet run --project Oloraculo.Web -c Release -- --export-site --output "$GITHUB_WORKSPACE/dist"
 
       - name: Subir artefacto de Pages
         uses: actions/upload-pages-artifact@v3
