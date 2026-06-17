@@ -1,74 +1,171 @@
 @page "/"
 @inject OloraculoDbContext Db
 @inject IOptions<OloraculoConfig> Options
+@inject SnapshotService Snapshots
+@inject EvaluationService Evaluation
 
-<PageTitle>Oloráculo</PageTitle>
+<PageTitle>Oloráculo — Oráculo del Mundial 2026</PageTitle>
 
 <MudStack Spacing="3">
-    <div class="page-head">
-        <MudText Typo="Typo.h3">Oloráculo</MudText>
-        <MudText Typo="Typo.body1" Color="Color.Secondary">Funciona como huele</MudText>
+    <div class="hero">
+        <div class="hero-content">
+            <MudChip T="string" Size="Size.Small" Class="hero-badge" Icon="@Icons.Material.Filled.AutoAwesome">Modelo auto-aprendiente</MudChip>
+            <MudText Typo="Typo.h3" Class="hero-title">Oloráculo</MudText>
+            <MudText Typo="Typo.h6" Class="hero-subtitle">El oráculo del Mundial 2026 que aprende de cada resultado.</MudText>
+            <MudText Typo="Typo.body1" Class="hero-text">
+                Un ensemble de modelos (Poisson Dixon-Coles, Elo, ranking FIFA, forma reciente y contexto)
+                ponderado por la precisión histórica real de cada uno. Cuando termina un partido, el resultado
+                se ingiere solo desde la API, se evalúa y los pesos se recalibran. Cuanto más se juega, mejor predice.
+            </MudText>
+            <div class="hero-actions">
+                <MudButton Href="tournament" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.EmojiEvents">Ver favoritos</MudButton>
+                <MudButton Href="matches" Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Stadium">Partidos y picks</MudButton>
+                <MudButton Href="lab" Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Science">Laboratorio</MudButton>
+            </div>
+        </div>
     </div>
 
     <MudGrid Spacing="2">
-        <MudItem xs="12" sm="6" lg="3"><MudPaper Class="stat-card" Elevation="0"><MudText Typo="Typo.h4">@_teams</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Equipos</MudText></MudPaper></MudItem>
-        <MudItem xs="12" sm="6" lg="3"><MudPaper Class="stat-card" Elevation="0"><MudText Typo="Typo.h4">@_fixtures</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Partidos</MudText></MudPaper></MudItem>
-        <MudItem xs="12" sm="6" lg="3"><MudPaper Class="stat-card" Elevation="0"><MudText Typo="Typo.h4">@_results</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Resultados</MudText></MudPaper></MudItem>
-        <MudItem xs="12" sm="6" lg="3"><MudPaper Class="stat-card" Elevation="0"><MudText Typo="Typo.h4">@Options.Value.SimulationCount.ToString("N0")</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Simulaciones</MudText></MudPaper></MudItem>
+        <MudItem xs="6" lg="3"><MudPaper Class="stat-card" Elevation="0"><MudText Typo="Typo.h4">@_teams</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Equipos</MudText></MudPaper></MudItem>
+        <MudItem xs="6" lg="3"><MudPaper Class="stat-card" Elevation="0"><MudText Typo="Typo.h4">@_fixtures</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Partidos</MudText></MudPaper></MudItem>
+        <MudItem xs="6" lg="3"><MudPaper Class="stat-card" Elevation="0"><MudText Typo="Typo.h4">@_results</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Resultados</MudText></MudPaper></MudItem>
+        <MudItem xs="6" lg="3"><MudPaper Class="stat-card" Elevation="0"><MudText Typo="Typo.h4">@Options.Value.SimulationCount.ToString("N0")</MudText><MudText Typo="Typo.body2" Color="Color.Secondary">Simulaciones</MudText></MudPaper></MudItem>
     </MudGrid>
 
     <MudGrid Spacing="2">
-        <MudItem xs="12" md="6">
+        <MudItem xs="12" md="7">
             <MudPaper Class="surface-card" Elevation="0">
-                <MudText Typo="Typo.h6">Flujo del proyecto</MudText>
-                <ol class="clean-list">
-                    <li>Los CSV crean el mundo futbolero.</li>
-                    <li>API-Football puede enriquecer partidos cuando hay datos.</li>
-                    <li>La escalera predice un partido por vez.</li>
-                    <li>El Oráculo final elige el escalón usable más alto.</li>
-                    <li>Monte Carlo juega muchas veces el torneo oficial 2026.</li>
-                    <li>Las predicciones guardadas se evalúan cuando llegan resultados.</li>
-                </ol>
-                <MudButton Href="lab" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Science">Abrir laboratorio</MudButton>
+                <div class="card-head">
+                    <MudText Typo="Typo.h6"><MudIcon Icon="@Icons.Material.Filled.EmojiEvents" Size="Size.Small" Class="head-icon" />Favoritos al título</MudText>
+                    @if (_projectionGeneratedAt is not null)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@_projectionGeneratedAt.Value.UtcDateTime.ToString("dd MMM HH:mm") UTC</MudText>
+                    }
+                </div>
+
+                @if (_contenders.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                        Todavía no hay una simulación de torneo guardada. Generá una desde la sección
+                        <MudLink Href="tournament">Torneo</MudLink>.
+                    </MudText>
+                }
+                else
+                {
+                    <div class="contender-list">
+                        @{ var max = _contenders.Max(c => c.WinTournament); }
+                        @foreach (var team in _contenders)
+                        {
+                            <div class="contender-row">
+                                <TeamLabel TeamId="@team.TeamId" Name="@Name(team.TeamId)" Class="contender-team" />
+                                <div class="contender-bar">
+                                    <div class="contender-fill" style="@($"width:{BarWidth(team.WinTournament, max)}%")"></div>
+                                </div>
+                                <span class="contender-pct">@team.WinTournament.ToString("P1")</span>
+                            </div>
+                        }
+                    </div>
+                }
             </MudPaper>
         </MudItem>
 
-        <MudItem xs="12" md="6">
+        <MudItem xs="12" md="5">
             <MudPaper Class="surface-card" Elevation="0">
-                <MudText Typo="Typo.h6">Escalera</MudText>
-                <MudTable Items="_ladder" Dense="true" Hover="true" Elevation="0">
-                    <RowTemplate>
-                        <MudTd DataLabel="Nivel"><MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">@context.Level</MudChip></MudTd>
-                        <MudTd DataLabel="Modelo">@context.Model</MudTd>
-                        <MudTd DataLabel="Señal"><MudText Typo="Typo.body2" Color="Color.Secondary">@context.Signal</MudText></MudTd>
-                    </RowTemplate>
-                </MudTable>
+                <div class="card-head">
+                    <MudText Typo="Typo.h6"><MudIcon Icon="@Icons.Material.Filled.Insights" Size="Size.Small" Class="head-icon" />Aprendizaje del modelo</MudText>
+                </div>
+
+                @if (_evaluatedCount == 0)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                        Aún no se evaluaron predicciones contra resultados reales. En cuanto se jueguen partidos,
+                        el ensemble empieza a reponderar a sus modelos automáticamente.
+                    </MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                        @_evaluatedCount predicción(es) evaluadas. Los pesos del ensemble se reponderan con estos aciertos.
+                    </MudText>
+                    <MudSimpleTable Dense="true" Hover="true" Elevation="0" Class="mt-2">
+                        <thead>
+                            <tr><th>Modelo</th><th class="num">Acierto</th><th class="num">RPS</th><th class="num">n</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _performance)
+                            {
+                                <tr>
+                                    <td>@row.ModelName</td>
+                                    <td class="num">@row.TopPickAccuracy.ToString("P0")</td>
+                                    <td class="num">@row.MeanRps.ToString("0.000")</td>
+                                    <td class="num">@row.Count</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                    <MudButton Href="performance" Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Class="mt-2">Ver rendimiento completo</MudButton>
+                }
             </MudPaper>
         </MudItem>
     </MudGrid>
+
+    <MudPaper Class="surface-card" Elevation="0">
+        <MudText Typo="Typo.h6"><MudIcon Icon="@Icons.Material.Filled.Route" Size="Size.Small" Class="head-icon" />Cómo predice</MudText>
+        <MudGrid Spacing="2" Class="mt-2">
+            <MudItem xs="12" sm="6" lg="3">
+                <div class="how-step"><span class="how-num">1</span><div><strong>Reúne datos</strong><p>CSV históricos, ranking FIFA/Elo y enriquecimiento por API (lesiones, alineaciones).</p></div></div>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="3">
+                <div class="how-step"><span class="how-num">2</span><div><strong>Combina modelos</strong><p>Un ensemble pondera Poisson, Elo, FIFA, forma y contexto según su precisión.</p></div></div>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="3">
+                <div class="how-step"><span class="how-num">3</span><div><strong>Simula el torneo</strong><p>Monte Carlo juega el Mundial @Options.Value.SimulationCount.ToString("N0") veces.</p></div></div>
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="3">
+                <div class="how-step"><span class="how-num">4</span><div><strong>Aprende solo</strong><p>Al terminar un partido, ingiere el resultado, evalúa y recalibra los pesos.</p></div></div>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
 </MudStack>
 
 @code {
     private int _teams;
     private int _fixtures;
     private int _results;
-    private readonly List<LadderRow> _ladder =
-    [
-        new("L0", "Base", "probabilidad uniforme"),
-        new("L1", "Ranking FIFA", "puntos externos"),
-        new("L2", "Elo", "fortaleza de largo plazo"),
-        new("L3", "Forma reciente", "resultados de corto plazo"),
-        new("L4", "Goles", "marcadores Poisson"),
-        new("L5", "Contexto", "ajuste con fuentes"),
-        new("Final", "Oráculo final", "escalón usable más alto")
-    ];
+    private int _evaluatedCount;
+    private DateTimeOffset? _projectionGeneratedAt;
+    private IReadOnlyList<TeamTournamentProbability> _contenders = [];
+    private IReadOnlyList<ModelPerformanceRow> _performance = [];
+    private Dictionary<string, string> _names = new();
 
     protected override async Task OnInitializedAsync()
     {
         _teams = await Db.Teams.CountAsync();
         _fixtures = await Db.Fixtures.CountAsync();
         _results = await Db.Results.CountAsync();
+        _names = await Db.Teams.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name);
+
+        var latest = (await Snapshots.TournamentSnapshotsAsync(take: 1)).FirstOrDefault();
+        if (latest is not null)
+        {
+            var loaded = await Snapshots.LoadTournamentSnapshotAsync(latest.Id);
+            if (loaded.Projection is { } projection)
+            {
+                _projectionGeneratedAt = projection.GeneratedAt;
+                _contenders = projection.Teams
+                    .OrderByDescending(t => t.WinTournament)
+                    .Take(8)
+                    .ToList();
+            }
+        }
+
+        var performance = await Evaluation.PerformanceAsync();
+        _performance = performance.Take(6).ToList();
+        _evaluatedCount = performance.Sum(row => row.Count);
     }
 
-    private sealed record LadderRow(string Level, string Model, string Signal);
+    private string Name(string teamId) => _names.TryGetValue(teamId, out var name) ? name : teamId;
+
+    private static double BarWidth(double value, double max) =>
+        max <= 0 ? 0 : Math.Clamp(value / max * 100.0, 2, 100);
 }

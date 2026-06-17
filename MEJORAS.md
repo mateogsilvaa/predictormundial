@@ -69,7 +69,36 @@ partido se juegue cada modelo pueda ser calificado individualmente y el ensemble
 API-Football también aporta lesiones, alineaciones, cuotas y estadísticas de jugadores que ya se
 ingieren en el contexto del partido.
 
+### 6. Lectura automática de resultados al terminar cada partido (football-data.org)
+Nueva integración con **football-data.org** (`Services/FootballDataService.cs`) y un servicio en
+segundo plano (`Services/ResultIngestionBackgroundService.cs`) que:
+
+1. Cada `ResultPollIntervalMinutes` (15 min por defecto) busca partidos que **ya deberían haber
+   terminado**: estima el fin como `kickoff + ResultPollMatchDurationMinutes` (150 min = 90' +
+   descanso + descuento + margen), así nunca pide un resultado que no puede existir todavía.
+2. Para esos partidos consulta football-data.org, mapea el resultado a nuestro fixture (por nombre
+   de equipo normalizado, en cualquier orientación) e **ingiere el marcador real automáticamente**.
+3. Dispara la evaluación de esos partidos y, con ello, la **recalibración de los pesos** del
+   ensemble. Todo sin intervención manual.
+
+El token se configura en `Oloraculo:FootballDataApiKey` (ver más abajo). Se puede desactivar con
+`Oloraculo:ResultPollEnabled = false`.
+
+### 7. Web renovada
+La portada (`Components/Pages/Home.razor`) pasó a ser un dashboard: hero, **favoritos al título**
+con barras de probabilidad y banderas (del último snapshot de torneo), panel de **aprendizaje del
+modelo** (precisión por modelo cuando hay resultados) y un resumen visual de cómo predice. Estilos
+nuevos en `wwwroot/app.css`.
+
 ## Cómo configurar la API key (gratis)
+
+### football-data.org (resultados automáticos)
+Ya viene configurada en `appsettings.json` (`Oloraculo:FootballDataApiKey`). Para el Mundial, ajusta
+`Oloraculo:FootballDataCompetition` (código de competición de football-data.org, p. ej. `WC`).
+Por seguridad puedes mover el token a una variable de entorno `Oloraculo__FootballDataApiKey` o a
+user-secrets y quitarlo del `appsettings.json`.
+
+### API-Football (lesiones, alineaciones, cuotas)
 
 1. Crea una cuenta gratuita en **https://www.api-football.com/** (o vía RapidAPI / api-sports.io).
    El plan gratuito da ~100 peticiones/día.

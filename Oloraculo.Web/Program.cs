@@ -59,6 +59,16 @@ builder.Services.AddHttpClient<AvailabilityNewsService>((sp, client) =>
     client.Timeout = TimeSpan.FromSeconds(60);
     client.DefaultRequestHeaders.UserAgent.ParseAdd(options.AvailabilityRefreshUserAgent);
 });
+builder.Services.AddHttpClient<FootballDataService>((sp, client) =>
+{
+    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OloraculoConfig>>().Value;
+    client.BaseAddress = new Uri(options.FootballDataBaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.Add("User-Agent", "Oloraculo");
+    if (!string.IsNullOrWhiteSpace(options.FootballDataApiKey))
+        client.DefaultRequestHeaders.Add("X-Auth-Token", options.FootballDataApiKey);
+});
+builder.Services.AddHostedService<ResultIngestionBackgroundService>();
 
 var app = builder.Build();
 var exportReadmeSnapshots = args.Any(arg => string.Equals(arg, "--export-readme-snapshots", StringComparison.OrdinalIgnoreCase));

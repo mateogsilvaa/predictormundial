@@ -10,6 +10,18 @@
         public string? ApiFootballApiKey { get; set; }
         public int ApiFootballLeagueId { get; set; }
         public int ApiFootballSeason { get; set; }
+
+        // football-data.org is used to pull real final scores automatically once a match should
+        // have ended, feeding the evaluation/learning loop without any manual input.
+        public string FootballDataBaseUrl { get; set; } = "https://api.football-data.org/v4/";
+        public string? FootballDataApiKey { get; set; }
+        public string FootballDataCompetition { get; set; } = "WC";
+        // How long after kickoff a match is assumed finished (90' + halftime + stoppage + safety
+        // margin). The auto-ingest only queries a fixture's result once this much time has passed.
+        public int ResultPollMatchDurationMinutes { get; set; } = 150;
+        // How often the background ingester wakes up to check for matches that have just finished.
+        public int ResultPollIntervalMinutes { get; set; } = 15;
+        public bool ResultPollEnabled { get; set; } = true;
         public bool RankingRefreshOnStartup { get; set; } = true;
         public int EloRefreshMaxLookbackDays { get; set; } = 14;
         public string FifaRankingsRawUrl { get; set; } = "https://en.wikipedia.org/w/index.php?title=Module:SportsRankings/data/FIFA_World_Rankings&action=raw";
