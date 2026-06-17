@@ -1,0 +1,15 @@
+# Keep the Docker build context small and the image clean.
+**/bin
+**/obj
+Oloraculo.Web.Tests
+.git
+.github
+.vs
+.idea
+dist
+state
+*.db
+*.db-shm
+*.db-wal
+*.log
+**/appsettings.Development.json
