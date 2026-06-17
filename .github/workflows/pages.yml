@@ -1,0 +1,67 @@
+name: Publicar Oloráculo en GitHub Pages
+
+# Regenera la web estática (favoritos, picks por grupo, rendimiento) e ingiere los resultados
+# reales que hayan terminado. El modelo corre aquí, en el runner, con las claves como secrets.
+on:
+  schedule:
+    - cron: "0 * * * *"      # cada hora en punto (UTC)
+  push:
+    branches: [main]
+  workflow_dispatch:           # ejecución manual desde la pestaña Actions
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Una sola publicación a la vez; no cancelar una en curso.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      # Persiste la base SQLite entre ejecuciones para que el aprendizaje (evaluaciones,
+      # snapshots) se acumule. Clave rotativa: restaura la más reciente y guarda una nueva.
+      - name: Restaurar estado del modelo (SQLite)
+        uses: actions/cache@v4
+        with:
+          path: state
+          key: oloraculo-db-${{ github.run_id }}
+          restore-keys: |
+            oloraculo-db-
+
+      - name: Preparar carpeta de estado
+        run: mkdir -p state
+
+      - name: Generar sitio estático e ingerir resultados
+        env:
+          ConnectionStrings__Oloraculo: "Data Source=${{ github.workspace }}/state/oloraculo.db"
+          Oloraculo__RankingRefreshOnStartup: "false"
+          Oloraculo__FootballDataApiKey: ${{ secrets.FOOTBALL_DATA_API_KEY }}
+          Oloraculo__ApiFootballApiKey: ${{ secrets.API_FOOTBALL_API_KEY }}
+          Oloraculo__OpenRouterApiKey: ${{ secrets.OPENROUTER_API_KEY }}
+        run: dotnet run --project Oloraculo.Web -c Release -- --export-site --output dist
+
+      - name: Subir artefacto de Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

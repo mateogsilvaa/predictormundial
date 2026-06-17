@@ -29,6 +29,7 @@ builder.Services.AddScoped<EvaluationService>();
 builder.Services.AddScoped<SnapshotService>();
 builder.Services.AddScoped<SimulationService>();
 builder.Services.AddScoped<ReadmeSnapshotExportService>();
+builder.Services.AddScoped<SiteExportService>();
 builder.Services.AddHttpClient<PlayerImpactService>((sp, client) =>
 {
     var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<OloraculoConfig>>().Value;
@@ -72,12 +73,20 @@ builder.Services.AddHostedService<ResultIngestionBackgroundService>();
 
 var app = builder.Build();
 var exportReadmeSnapshots = args.Any(arg => string.Equals(arg, "--export-readme-snapshots", StringComparison.OrdinalIgnoreCase));
+var exportSite = args.Any(arg => string.Equals(arg, "--export-site", StringComparison.OrdinalIgnoreCase));
+var siteOutputDirectory = ArgValue(args, "--output") ?? "dist";
+
+static string? ArgValue(string[] args, string name)
+{
+    var index = Array.FindIndex(args, a => string.Equals(a, name, StringComparison.OrdinalIgnoreCase));
+    return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+}
 
 using (var Scope = app.Services.CreateScope())
 {
     var Config = Scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<OloraculoConfig>>().Value;
     var CsvImporterService = Scope.ServiceProvider.GetRequiredService<CsvImportService>();
-    if (Config.RankingRefreshOnStartup && !exportReadmeSnapshots)
+    if (Config.RankingRefreshOnStartup && !exportReadmeSnapshots && !exportSite)
     {
         try
         {
@@ -115,6 +124,14 @@ if (exportReadmeSnapshots)
     using var scope = app.Services.CreateScope();
     var exporter = scope.ServiceProvider.GetRequiredService<ReadmeSnapshotExportService>();
     await exporter.ExportAsync();
+    return;
+}
+
+if (exportSite)
+{
+    using var scope = app.Services.CreateScope();
+    var exporter = scope.ServiceProvider.GetRequiredService<SiteExportService>();
+    await exporter.ExportAsync(siteOutputDirectory);
     return;
 }
 

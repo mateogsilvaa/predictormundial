@@ -123,7 +123,27 @@ user-secrets y quitarlo del `appsettings.json`.
 4. Ajusta `Oloraculo:ApiFootballLeagueId` y `Oloraculo:ApiFootballSeason` al Mundial 2026 según
    los IDs de API-Football. Sin key, el sistema sigue funcionando con los CSV incluidos.
 
+## Despliegue en GitHub Pages (web estática auto-generada)
+
+GitHub Pages solo sirve estáticos, así que **no corre la app Blazor interactiva**. En su lugar, el
+modo CLI `--export-site` genera una web estática (`dist/index.html` + banderas) con favoritos al
+título, picks por grupo y rendimiento del modelo, y el workflow `.github/workflows/pages.yml` la
+publica cada hora. El modelo corre en el runner del Action (ahí sí hay .NET y secrets): ingiere
+resultados reales, recalibra y regenera la página. La SQLite se cachea entre ejecuciones para que el
+aprendizaje se acumule.
+
+**Requisitos en GitHub:**
+1. `Settings → Pages → Source: GitHub Actions`.
+2. `Settings → Secrets and variables → Actions`: `FOOTBALL_DATA_API_KEY` (y opcionalmente
+   `API_FOOTBALL_API_KEY`, `OPENROUTER_API_KEY`).
+3. Pages en repos **privados** requiere GitHub Pro/Team; en plan Free hay que hacer el repo público.
+
+Para correrlo localmente: `dotnet run --project Oloraculo.Web -- --export-site --output dist`.
+
+> La app interactiva completa (laboratorio, etc.) necesita un host con servidor (Render/Fly/Railway);
+> ver el `Dockerfile` sugerido. Pages/Netlify/Vercel no pueden ejecutar el backend.
+
 ## Tests
 
-`dotnet test` — 127 pruebas, todas en verde. Se añadieron tests para el ensemble ponderado, la
+`dotnet test` — 131 pruebas, todas en verde. Se añadieron tests para el ensemble ponderado, la
 consistencia marcador↔probabilidades y los pesos de fiabilidad (el aprendizaje).
